@@ -1,0 +1,53 @@
+#!/bin/bash
+action=$1
+lemonfile=$([[ -z $2 ]] && echo $2 || echo Lemonfile)
+if [[ -z $2 ]]; then
+    lemonfile=Lemonfile
+else
+    lemonfile=$2;
+fi
+
+[[ -e /tmp/lemon-$USER ]] || mkdir /tmp/lemon-$USER
+case $action in
+    grab)
+        while read l; do
+            repo=$(echo $l | cut -d' ' -f1)
+            destdir=$(echo $l | cut -d' ' -f2)
+            (
+                cd /tmp/lemon-$USER
+                git clone --depth=1 $repo $destdir
+            )
+        done < $lemonfile
+        ;;
+    build)
+        jobs=$(( $(nproc) + 1 ))
+        echo Running with $jobs jobs.
+        buildid=$(cat /dev/urandom | head -n2 | sha1sum | cut -d' ' -f1)
+        echo Buildid for this build is $buildid
+        mkdir /tmp/lemon-$USER/$buildid
+        echo $buildid > /tmp/lemon-$USER/lastbuild
+        export MAKEFLAGS="-j $jobs"
+        export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig"
+        while read l; do
+            dir=$(echo $l | cut -d' ' -f2)
+            (
+                cd /tmp/lemon-$USER
+                if ! [[ -e $dir ]]; then
+                    echo "Repository $dir has not been fetched. Unacceptable, exiting. (Perhaps run $0 grab $lemonfile?)"
+                    exit 2
+                fi
+                cmd=$(echo $l | cut -d' ' -f3-)
+                echo "Working on $dir... (logfile: /tmp/lemon-$USER/$buildid-$dir.log)"
+                (
+                    echo "    " $cmd
+                    cd $dir
+                    eval $cmd >> /tmp/lemon-$USER/$buildid-$dir.log
+                )
+                echo Done with $dir.
+            )
+        done < $lemonfile
+        ;;
+    clean)
+        rm -rf /tmp/lemon-$USER
+        ;;
+esac
